@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"syscall"
 
 	"github.com/Izumra/FamilyTeam/utils/parser"
 	"github.com/go-chi/chi/v5"
@@ -17,19 +16,29 @@ type server struct {
 	server *chi.Mux
 }
 
-func New(log *slog.Logger, cfg *parser.Config) *server {
+func New(log *slog.Logger, cfg *parser.Config) (*server, error) {
 	mux := chi.NewRouter()
 	mux.Use(middleware.Logger)
 
 	files, err := parser.ParseArchive(cfg.FilePath, cfg.Extension)
 	if err != nil {
-		panic("Произошла ошибка пр парсинге архива - " + err.Error())
+		return nil, fmt.Errorf("Произошла ошибка пр парсинге архива - %w", err)
 	}
 
-	html := fmt.Sprintf("Extension: %s", cfg.Extension)
+	html := fmt.Sprintf(`
+	<html>
+		<head></head>
+		<body>
+			<div>Extension: %s</div>
+			<ul>`, cfg.Extension)
 	for _, v := range files {
-		html += "\n" + v
+		html += fmt.Sprintf("<li>%s</li>", v)
 	}
+	html += `
+			</ul>
+		</body>
+	</html>
+	`
 
 	mux.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(html))
@@ -39,21 +48,14 @@ func New(log *slog.Logger, cfg *parser.Config) *server {
 		log,
 		cfg,
 		mux,
-	}
+	}, nil
 }
 
-func (s *server) Start() {
-	op := "chi/server.Start"
-	log := s.log.With("op", op)
-
+func (s *server) Start() error {
 	addr := fmt.Sprintf(":%d", s.cfg.Port)
 	err := http.ListenAndServe(addr, s.server)
 	if err != nil {
-		log.Error("Не удалось запустить сервер по причине", slog.Any("cause", err))
-
-		err := syscall.Kill(syscall.Getpid(), syscall.SIGINT)
-		if err != nil {
-			syscall.Kill(syscall.Getpid(), syscall.SIGTERM)
-		}
+		return fmt.Errorf("Не удалось запустить сервер по причине %w", err)
 	}
+	return nil
 }
